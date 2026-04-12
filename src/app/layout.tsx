@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import SessionWrapper from "@/components/SessionWrapper";
+import SiteNav from "@/components/SiteNav";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,12 +15,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Challenge Logan | Bet You Can't Stump Me",
+  title: "Challenge Logan | Think you've got a problem I can't solve? Try me.",
   description:
-    "Submit an engineering challenge you think Logan can't solve. Spoiler: he can. Code typing is dead, and Logan's here to prove it.",
+    "Submit an engineering challenge you think Logan can't solve. AI turns thinkers into doers.",
   openGraph: {
     title: "Challenge Logan",
-    description: "Think you've got a problem I can't solve? Cute.",
+    description: "Think you've got a problem I can't solve? Try me.",
     type: "website",
   },
 };
@@ -34,7 +35,10 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <SessionWrapper>{children}</SessionWrapper>
+        <SessionWrapper>
+          <SiteNav />
+          {children}
+        </SessionWrapper>
       </body>
     </html>
   );

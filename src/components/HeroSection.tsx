@@ -20,12 +20,9 @@ export default function HeroSection() {
           </span>
         </div>
         <p className="mt-6 text-xl text-zinc-400 sm:text-2xl">
-          I don&apos;t care that you memorized which sorting algorithm to use or
-          when to reach for a B-tree. That&apos;s not engineering&mdash;that&apos;s{" "}
-          <span className="font-semibold text-orange-400">trivia</span>. The
-          only skills that matter now are: general system concepts, control
-          flow, and asking the right questions. Leetcode is out of business. AI
-          turns Thinkers into Doers.
+          I don&apos;t care that you memorized which sorting algorithm to use.
+          Information travels through a medium, everything else is details.
+          Leetcode is out of business. AI turns Thinkers into Doers.
         </p>
         <p className="mt-4 text-lg text-zinc-500">
           From the silicon up&mdash;submit a &ldquo;tough&rdquo; design or algo
