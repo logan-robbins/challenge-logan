@@ -107,6 +107,17 @@ function CopyButton({ text }) {
   );
 }
 
+function extractText(node) {
+  if (node == null || node === false) return "";
+  if (typeof node === "string") return node;
+  if (typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join("");
+  if (typeof node === "object" && node.props) {
+    return extractText(node.props.children);
+  }
+  return "";
+}
+
 const markdownComponents = {
   h1: ({ children }) => <h1 style={{ fontSize: 22, fontWeight: 700, marginTop: 24, marginBottom: 12, color: C.text, letterSpacing: "-0.01em" }}>{children}</h1>,
   h2: ({ children }) => <h2 style={{ fontSize: 19, fontWeight: 700, marginTop: 22, marginBottom: 10, color: C.text, letterSpacing: "-0.01em" }}>{children}</h2>,
@@ -128,10 +139,9 @@ const markdownComponents = {
   ),
   th: ({ children }) => <th style={{ border: `1px solid ${C.border}`, padding: "8px 12px", background: C.elevated, textAlign: "left", fontWeight: 700, color: C.text }}>{children}</th>,
   td: ({ children }) => <td style={{ border: `1px solid ${C.border}`, padding: "8px 12px", color: C.text }}>{children}</td>,
-  code({ inline, className, children, ...props }) {
+  code({ className, children, ...props }) {
     const match = /language-(\w+)/.exec(className || "");
-    const codeText = String(children).replace(/\n$/, "");
-    if (inline) {
+    if (!match) {
       return (
         <code style={{
           fontFamily: mono, fontSize: "0.9em",
@@ -140,19 +150,18 @@ const markdownComponents = {
         }} {...props}>{children}</code>
       );
     }
+    const codeText = extractText(children).replace(/\n$/, "");
     return (
       <div style={{ position: "relative", margin: "12px 0" }}>
-        {match && (
-          <div style={{
-            position: "absolute", top: 8, left: 12,
-            color: C.textDim, fontFamily: mono, fontSize: 11,
-            textTransform: "uppercase", letterSpacing: "0.05em",
-          }}>{match[1]}</div>
-        )}
+        <div style={{
+          position: "absolute", top: 8, left: 12,
+          color: C.textDim, fontFamily: mono, fontSize: 11,
+          textTransform: "uppercase", letterSpacing: "0.05em",
+        }}>{match[1]}</div>
         <CopyButton text={codeText} />
         <pre style={{
           background: C.codeBg, border: `1px solid ${C.border}`,
-          borderRadius: 8, padding: match ? "32px 14px 14px" : "14px",
+          borderRadius: 8, padding: "32px 14px 14px",
           overflow: "auto", margin: 0,
           fontFamily: mono, fontSize: 13, lineHeight: 1.6,
         }}>
