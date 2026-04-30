@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   const stream = client.beta.messages.stream({
     betas: ["mcp-client-2025-04-04", "files-api-2025-04-14"],
     model: "claude-sonnet-4-6",
-    max_tokens: 16000,
+    max_tokens: 64000,
     system: SYSTEM_PROMPT,
     messages,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

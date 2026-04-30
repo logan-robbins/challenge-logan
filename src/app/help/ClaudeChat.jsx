@@ -471,6 +471,7 @@ export default function ClaudeChat() {
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let receivedText = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -485,6 +486,7 @@ export default function ClaudeChat() {
             if (evt.t === "status") {
               setStatus(evt.v);
             } else if (evt.t === "text") {
+              receivedText = true;
               setStatus("");
               setMessages((prev) => {
                 const last = prev[prev.length - 1];
@@ -495,6 +497,16 @@ export default function ClaudeChat() {
             }
           } catch {}
         }
+      }
+
+      if (!receivedText) {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          return [...prev.slice(0, -1), {
+            ...last,
+            content: "_No response text was returned. The model may have hit the token budget during thinking/tool use. Try a more specific prompt._",
+          }];
+        });
       }
     } catch {
       setMessages((prev) => {
