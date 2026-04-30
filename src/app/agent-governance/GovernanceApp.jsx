@@ -584,7 +584,11 @@ export default function App() {
         <div id="s0" style={{ scrollMarginTop: 20 }}>
           <FadeIn>
             <span style={{ fontSize: 11, color: C.red, fontFamily: mono, letterSpacing: "0.12em" }}>APRIL 2026 · MICROSOFT OSS · MIT LICENSE</span>
-            <h1 style={{ fontSize: 36, fontWeight: 800, color: "#f4f4fa", margin: "6px 0 16px", lineHeight: 1.12, letterSpacing: "-0.03em" }}>Agent Governance Toolkit</h1>
+            <h1 style={{ fontSize: 36, fontWeight: 800, color: "#f4f4fa", margin: "6px 0 16px", lineHeight: 1.12, letterSpacing: "-0.03em" }}>Microsoft Agent Governance Toolkit</h1>
+            <div style={{ display: "flex", gap: 16, marginBottom: 16, fontFamily: mono, fontSize: 12 }}>
+              <a href="https://github.com/microsoft/agent-governance-toolkit" target="_blank" rel="noopener noreferrer" style={{ color: C.blue, textDecoration: "none" }}>github.com/microsoft/agent-governance-toolkit</a>
+              <a href="https://opensource.microsoft.com/blog/2026/04/02/introducing-the-agent-governance-toolkit-open-source-runtime-security-for-ai-agents/" target="_blank" rel="noopener noreferrer" style={{ color: C.blue, textDecoration: "none" }}>Announcement Blog Post</a>
+            </div>
             <p style={{ fontSize: 16, color: "#999", lineHeight: 1.7, margin: "0 0 16px" }}>
               Open-source runtime security governance for autonomous AI agents. Seven independently installable packages that intercept every agent action and enforce policy at sub-millisecond latency. Covers all 10 OWASP Agentic AI risks.
             </p>
