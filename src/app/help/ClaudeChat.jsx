@@ -3,77 +3,24 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import JSZip from "jszip";
 import "highlight.js/styles/github-dark.css";
-
-const BINARY_EXTS = new Set([
-  "png","jpg","jpeg","gif","webp","ico","bmp","tiff","tif","heic","avif",
-  "pdf","doc","docx","xls","xlsx","ppt","pptx","odt","ods","odp",
-  "zip","tar","gz","tgz","bz2","7z","rar","xz","lz4","zst",
-  "exe","dll","so","dylib","bin","class","jar","pyc","pyo","wasm","o","obj",
-  "mp3","mp4","m4a","m4v","mov","avi","mkv","wav","flac","ogg","webm",
-  "woff","woff2","ttf","otf","eot",
-  "psd","ai","sketch","fig","xcf",
-  "db","sqlite","sqlite3","mdb",
-  "DS_Store","keystore","pfx","p12",
-]);
-const TEXT_FILE_MAX = 1 * 1024 * 1024;        // 1 MB per file
-const ZIP_PAYLOAD_MAX = 8 * 1024 * 1024;      // 8 MB total extracted text
-const ZIP_FILE_LIMIT = 500;                   // sanity cap on file count
-
-async function extractZip(file) {
-  const zip = await JSZip.loadAsync(file);
-  const entries = [];
-  let totalSize = 0;
-  let skippedBinary = 0;
-  let skippedTooBig = 0;
-  let skippedOverBudget = 0;
-
-  const allEntries = Object.values(zip.files)
-    .filter((e) => !e.dir)
-    .filter((e) => !e.name.startsWith("__MACOSX/") && !e.name.endsWith(".DS_Store"));
-
-  for (const entry of allEntries) {
-    if (entries.length >= ZIP_FILE_LIMIT) { skippedOverBudget++; continue; }
-    const ext = entry.name.split(".").pop().toLowerCase();
-    if (BINARY_EXTS.has(ext)) { skippedBinary++; continue; }
-    const data = await entry.async("uint8array");
-    if (data.byteLength > TEXT_FILE_MAX) { skippedTooBig++; continue; }
-    if (totalSize + data.byteLength > ZIP_PAYLOAD_MAX) { skippedOverBudget++; continue; }
-    const text = new TextDecoder("utf-8", { fatal: false }).decode(data);
-    if (text.indexOf("\u0000") >= 0 || text.indexOf("\uFFFD") >= 0) { skippedBinary++; continue; }
-    entries.push({ path: entry.name, text });
-    totalSize += data.byteLength;
-  }
-
-  let payload = `[Uploaded archive: ${file.name} — ${entries.length} files, ${formatBytes(totalSize)}]\n\n`;
-  if (skippedBinary || skippedTooBig || skippedOverBudget) {
-    const parts = [];
-    if (skippedBinary) parts.push(`${skippedBinary} binary`);
-    if (skippedTooBig) parts.push(`${skippedTooBig} >1MB`);
-    if (skippedOverBudget) parts.push(`${skippedOverBudget} over total budget`);
-    payload += `[Skipped: ${parts.join(", ")}]\n\n`;
-  }
-  payload += "Directory tree:\n```\n";
-  payload += entries.map((e) => e.path).sort().join("\n");
-  payload += "\n```\n\n";
-  for (const e of entries) {
-    payload += `==== ${e.path} ====\n${e.text}\n\n`;
-  }
-  return {
-    kind: "zip",
-    name: file.name,
-    fileCount: entries.length,
-    totalSize,
-    payload,
-    summary: { skippedBinary, skippedTooBig, skippedOverBudget },
-  };
-}
 
 function formatBytes(n) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / 1024 / 1024).toFixed(2)} MB`;
+}
+
+async function uploadZip(file, password) {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("password", password);
+  const resp = await fetch("/api/upload", { method: "POST", body: fd });
+  if (!resp.ok) {
+    const msg = await resp.text();
+    throw new Error(`Upload failed (${resp.status}): ${msg}`);
+  }
+  return resp.json();
 }
 
 const sans = "-apple-system, BlinkMacSystemFont, 'Inter', 'SF Pro Text', system-ui, sans-serif";
@@ -279,9 +226,11 @@ function MessageContent({ msg }) {
               />
             );
           }
-          if (typeof p.text === "string" && p.text.startsWith("[Uploaded archive:")) {
-            const headerEnd = p.text.indexOf("]");
-            const header = headerEnd > 0 ? p.text.slice(1, headerEnd) : "Archive";
+          if (p.type === "document") {
+            const meta = p._meta;
+            const header = meta
+              ? `${meta.name} — ${meta.fileCount} files, ${formatBytes(meta.totalSize)}`
+              : (p.title || "Document");
             return <ZipChip key={i} header={header} />;
           }
           return (
@@ -385,6 +334,7 @@ export default function ClaudeChat() {
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState([]);
   const [streaming, setStreaming] = useState(false);
+  const [uploadingZip, setUploadingZip] = useState(false);
   const [status, setStatus] = useState("");
   const [gateError, setGateError] = useState(false);
   const bottomRef = useRef(null);
@@ -426,11 +376,21 @@ export default function ClaudeChat() {
           data: base64,
         });
       } else if (ext === "zip" || file.type === "application/zip" || file.type === "application/x-zip-compressed") {
+        setUploadingZip(true);
         try {
-          const zipAtt = await extractZip(file);
-          newAtts.push(zipAtt);
+          const data = await uploadZip(file, password);
+          newAtts.push({
+            kind: "zip",
+            name: data.name,
+            file_id: data.file_id,
+            fileCount: data.fileCount,
+            totalSize: data.totalSize,
+          });
         } catch (err) {
-          console.error("zip extract failed", err);
+          console.error("zip upload failed", err);
+          alert(`Zip upload failed: ${err.message}`);
+        } finally {
+          setUploadingZip(false);
         }
       }
     }
@@ -453,7 +413,12 @@ export default function ClaudeChat() {
           source: { type: "base64", media_type: att.media_type, data: att.data },
         });
       } else if (att.kind === "zip") {
-        userContent.push({ type: "text", text: att.payload });
+        userContent.push({
+          type: "document",
+          source: { type: "file", file_id: att.file_id },
+          title: att.name,
+          _meta: { kind: "zip", name: att.name, fileCount: att.fileCount, totalSize: att.totalSize },
+        });
       }
     }
     if (text) userContent.push({ type: "text", text });
@@ -471,11 +436,21 @@ export default function ClaudeChat() {
 
     if (textareaRef.current) textareaRef.current.style.height = "auto";
 
+    const apiMessages = newMessages.map((m) => {
+      if (typeof m.content === "string") return m;
+      const cleaned = m.content.map((c) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
+        const { _meta, ...rest } = c;
+        return rest;
+      });
+      return { ...m, content: cleaned };
+    });
+
     try {
       const resp = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newMessages, password }),
+        body: JSON.stringify({ messages: apiMessages, password }),
       });
 
       if (resp.status === 401) {
@@ -665,11 +640,11 @@ export default function ClaudeChat() {
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={streaming}
-              title="Attach image or zip"
+              disabled={streaming || uploadingZip}
+              title={uploadingZip ? "Uploading…" : "Attach image or zip"}
               style={{
-                background: "transparent", border: "none", color: C.textMuted,
-                cursor: streaming ? "default" : "pointer",
+                background: "transparent", border: "none", color: uploadingZip ? C.accent : C.textMuted,
+                cursor: streaming || uploadingZip ? "default" : "pointer",
                 padding: 4, display: "flex", alignItems: "center",
                 opacity: streaming ? 0.4 : 1,
               }}
@@ -699,19 +674,19 @@ export default function ClaudeChat() {
             />
             <button
               onClick={sendMessage}
-              disabled={streaming || (!input.trim() && attachments.length === 0)}
+              disabled={streaming || uploadingZip || (!input.trim() && attachments.length === 0)}
               style={{
-                background: streaming || (!input.trim() && attachments.length === 0) ? C.border : C.accent,
+                background: streaming || uploadingZip || (!input.trim() && attachments.length === 0) ? C.border : C.accent,
                 border: "none", borderRadius: 8,
-                color: streaming || (!input.trim() && attachments.length === 0) ? C.textDim : "#0a0a0f",
+                color: streaming || uploadingZip || (!input.trim() && attachments.length === 0) ? C.textDim : "#0a0a0f",
                 fontFamily: sans, fontSize: 13, fontWeight: 700,
                 padding: "7px 14px",
-                cursor: streaming || (!input.trim() && attachments.length === 0) ? "default" : "pointer",
+                cursor: streaming || uploadingZip || (!input.trim() && attachments.length === 0) ? "default" : "pointer",
                 whiteSpace: "nowrap", alignSelf: "flex-end",
                 transition: "background 0.15s",
               }}
             >
-              {streaming ? "…" : "Send"}
+              {streaming ? "…" : uploadingZip ? "Uploading" : "Send"}
             </button>
           </div>
           <div style={{ color: C.textDim, fontSize: 11, marginTop: 8, textAlign: "center" }}>

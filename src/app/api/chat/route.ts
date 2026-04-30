@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   }
 
   const stream = client.beta.messages.stream({
-    betas: ["mcp-client-2025-04-04"],
+    betas: ["mcp-client-2025-04-04", "files-api-2025-04-14"],
     model: "claude-sonnet-4-6",
     max_tokens: 16000,
     system: SYSTEM_PROMPT,
