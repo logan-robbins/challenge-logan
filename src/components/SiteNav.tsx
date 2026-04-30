@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { label: "Agent Governance", href: "/agent-governance" },
   { label: "Agent Workflows", href: "/agent-workflows" },
   { label: "OpenClawps", href: "/openclawps" },
+  { label: "Help", href: "/help" },
 ];
 
 export default function SiteNav() {
