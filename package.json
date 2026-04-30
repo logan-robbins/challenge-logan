@@ -11,10 +11,14 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "firebase-admin": "^13.7.0",
+    "highlight.js": "^11.11.1",
     "next": "16.1.6",
     "next-auth": "^5.0.0-beta.30",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

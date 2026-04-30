@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const SYSTEM_PROMPT = `You are an expert engineering assistant with access to BrightData for live web search and scraping, and Microsoft Learn for official Microsoft and Azure documentation. Follow 2026 best practices: cite sources when using tools, use tools proactively when current information would improve your answer, and prefer concise actionable responses.`;
+const SYSTEM_PROMPT = `You are an expert engineering assistant with access to BrightData for live web search and scraping, and Microsoft Learn for official Microsoft and Azure documentation. Follow 2026 best practices: cite sources when using tools, use tools proactively when current information would improve your answer, and prefer concise actionable responses. Use GitHub-flavored markdown — fenced code blocks with language tags, tables, lists, headings.`;
 
 export async function POST(request: NextRequest) {
   const { messages, password } = await request.json();
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     thinking: { type: "adaptive" } as any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    output_config: { effort: "high" } as any,
+    output_config: { effort: "medium" } as any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mcp_servers: [
       {
@@ -43,12 +43,36 @@ export async function POST(request: NextRequest) {
 
   const readable = new ReadableStream({
     async start(controller) {
-      const encoder = new TextEncoder();
+      const enc = new TextEncoder();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const send = (obj: any) => controller.enqueue(enc.encode(JSON.stringify(obj) + "\n"));
+
       try {
-        stream.on("text", (text) => {
-          controller.enqueue(encoder.encode(text));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        stream.on("streamEvent", (event: any) => {
+          if (event.type === "content_block_start") {
+            const block = event.content_block;
+            if (!block) return;
+            if (block.type === "thinking") {
+              send({ t: "status", v: "Thinking…" });
+            } else if (block.type === "mcp_tool_use") {
+              const tool = block.name || "tool";
+              const server = block.server_name || "mcp";
+              send({ t: "status", v: `Calling ${server} · ${tool}` });
+            } else if (block.type === "tool_use") {
+              send({ t: "status", v: `Using tool · ${block.name || ""}` });
+            } else if (block.type === "text") {
+              send({ t: "status", v: "" });
+            }
+          }
         });
+
+        stream.on("text", (text: string) => {
+          send({ t: "text", v: text });
+        });
+
         await stream.finalMessage();
+        send({ t: "done" });
       } catch (err) {
         controller.error(err);
         return;
@@ -58,6 +82,6 @@ export async function POST(request: NextRequest) {
   });
 
   return new Response(readable, {
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
+    headers: { "Content-Type": "application/x-ndjson; charset=utf-8" },
   });
 }
