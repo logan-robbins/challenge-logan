@@ -16,7 +16,8 @@ export async function POST(request: NextRequest) {
     return new Response("Bad Request", { status: 400 });
   }
 
-  const stream = client.messages.stream({
+  const stream = client.beta.messages.stream({
+    betas: ["mcp-client-2025-04-04"],
     model: "claude-sonnet-4-6",
     max_tokens: 16000,
     system: SYSTEM_PROMPT,
@@ -26,7 +27,6 @@ export async function POST(request: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     output_config: { effort: "high" } as any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    betas: ["mcp-client-2025-04-04"] as any,
     mcp_servers: [
       {
         type: "url",
@@ -38,7 +38,6 @@ export async function POST(request: NextRequest) {
         url: "https://learn.microsoft.com/api/mcp",
         name: "microsoft-learn",
       },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ] as any,
   });
 
