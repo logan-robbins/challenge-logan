@@ -3,7 +3,78 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import JSZip from "jszip";
 import "highlight.js/styles/github-dark.css";
+
+const BINARY_EXTS = new Set([
+  "png","jpg","jpeg","gif","webp","ico","bmp","tiff","tif","heic","avif",
+  "pdf","doc","docx","xls","xlsx","ppt","pptx","odt","ods","odp",
+  "zip","tar","gz","tgz","bz2","7z","rar","xz","lz4","zst",
+  "exe","dll","so","dylib","bin","class","jar","pyc","pyo","wasm","o","obj",
+  "mp3","mp4","m4a","m4v","mov","avi","mkv","wav","flac","ogg","webm",
+  "woff","woff2","ttf","otf","eot",
+  "psd","ai","sketch","fig","xcf",
+  "db","sqlite","sqlite3","mdb",
+  "DS_Store","keystore","pfx","p12",
+]);
+const TEXT_FILE_MAX = 1 * 1024 * 1024;        // 1 MB per file
+const ZIP_PAYLOAD_MAX = 8 * 1024 * 1024;      // 8 MB total extracted text
+const ZIP_FILE_LIMIT = 500;                   // sanity cap on file count
+
+async function extractZip(file) {
+  const zip = await JSZip.loadAsync(file);
+  const entries = [];
+  let totalSize = 0;
+  let skippedBinary = 0;
+  let skippedTooBig = 0;
+  let skippedOverBudget = 0;
+
+  const allEntries = Object.values(zip.files)
+    .filter((e) => !e.dir)
+    .filter((e) => !e.name.startsWith("__MACOSX/") && !e.name.endsWith(".DS_Store"));
+
+  for (const entry of allEntries) {
+    if (entries.length >= ZIP_FILE_LIMIT) { skippedOverBudget++; continue; }
+    const ext = entry.name.split(".").pop().toLowerCase();
+    if (BINARY_EXTS.has(ext)) { skippedBinary++; continue; }
+    const data = await entry.async("uint8array");
+    if (data.byteLength > TEXT_FILE_MAX) { skippedTooBig++; continue; }
+    if (totalSize + data.byteLength > ZIP_PAYLOAD_MAX) { skippedOverBudget++; continue; }
+    const text = new TextDecoder("utf-8", { fatal: false }).decode(data);
+    if (text.indexOf("\u0000") >= 0 || text.indexOf("\uFFFD") >= 0) { skippedBinary++; continue; }
+    entries.push({ path: entry.name, text });
+    totalSize += data.byteLength;
+  }
+
+  let payload = `[Uploaded archive: ${file.name} — ${entries.length} files, ${formatBytes(totalSize)}]\n\n`;
+  if (skippedBinary || skippedTooBig || skippedOverBudget) {
+    const parts = [];
+    if (skippedBinary) parts.push(`${skippedBinary} binary`);
+    if (skippedTooBig) parts.push(`${skippedTooBig} >1MB`);
+    if (skippedOverBudget) parts.push(`${skippedOverBudget} over total budget`);
+    payload += `[Skipped: ${parts.join(", ")}]\n\n`;
+  }
+  payload += "Directory tree:\n```\n";
+  payload += entries.map((e) => e.path).sort().join("\n");
+  payload += "\n```\n\n";
+  for (const e of entries) {
+    payload += `==== ${e.path} ====\n${e.text}\n\n`;
+  }
+  return {
+    kind: "zip",
+    name: file.name,
+    fileCount: entries.length,
+    totalSize,
+    payload,
+    summary: { skippedBinary, skippedTooBig, skippedOverBudget },
+  };
+}
+
+function formatBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(2)} MB`;
+}
 
 const sans = "-apple-system, BlinkMacSystemFont, 'Inter', 'SF Pro Text', system-ui, sans-serif";
 const mono = "'JetBrains Mono', 'Fira Code', ui-monospace, 'SF Mono', Menlo, monospace";
@@ -172,6 +243,24 @@ const markdownComponents = {
   },
 };
 
+function ZipChip({ header }) {
+  return (
+    <div style={{
+      display: "inline-flex", alignItems: "center", gap: 8,
+      background: C.surface, border: `1px solid ${C.borderStrong}`,
+      borderRadius: 8, padding: "8px 12px", marginBottom: 8,
+      fontSize: 12, color: C.textMuted,
+    }}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" y1="15" x2="12" y2="3" />
+      </svg>
+      <span style={{ color: C.text, fontWeight: 600 }}>{header}</span>
+    </div>
+  );
+}
+
 function MessageContent({ msg }) {
   const isUser = msg.role === "user";
 
@@ -189,6 +278,11 @@ function MessageContent({ msg }) {
                 style={{ maxWidth: "100%", maxHeight: 300, borderRadius: 6, marginBottom: 8, display: "block" }}
               />
             );
+          }
+          if (typeof p.text === "string" && p.text.startsWith("[Uploaded archive:")) {
+            const headerEnd = p.text.indexOf("]");
+            const header = headerEnd > 0 ? p.text.slice(1, headerEnd) : "Archive";
+            return <ZipChip key={i} header={header} />;
           }
           return (
             <div key={i} style={{ whiteSpace: "pre-wrap", lineHeight: 1.6, color: C.text }}>
@@ -321,14 +415,24 @@ export default function ClaudeChat() {
     e.target.value = "";
     const newAtts = [];
     for (const file of files) {
-      if (!file.type.startsWith("image/")) continue;
-      if (file.size > 5 * 1024 * 1024) continue;
-      const base64 = await fileToBase64(file);
-      newAtts.push({
-        name: file.name,
-        media_type: file.type,
-        data: base64,
-      });
+      const ext = file.name.split(".").pop().toLowerCase();
+      if (file.type.startsWith("image/")) {
+        if (file.size > 5 * 1024 * 1024) continue;
+        const base64 = await fileToBase64(file);
+        newAtts.push({
+          kind: "image",
+          name: file.name,
+          media_type: file.type,
+          data: base64,
+        });
+      } else if (ext === "zip" || file.type === "application/zip" || file.type === "application/x-zip-compressed") {
+        try {
+          const zipAtt = await extractZip(file);
+          newAtts.push(zipAtt);
+        } catch (err) {
+          console.error("zip extract failed", err);
+        }
+      }
     }
     setAttachments((prev) => [...prev, ...newAtts]);
   }
@@ -343,14 +447,18 @@ export default function ClaudeChat() {
 
     const userContent = [];
     for (const att of attachments) {
-      userContent.push({
-        type: "image",
-        source: { type: "base64", media_type: att.media_type, data: att.data },
-      });
+      if (att.kind === "image") {
+        userContent.push({
+          type: "image",
+          source: { type: "base64", media_type: att.media_type, data: att.data },
+        });
+      } else if (att.kind === "zip") {
+        userContent.push({ type: "text", text: att.payload });
+      }
     }
     if (text) userContent.push({ type: "text", text });
 
-    const userMsg = userContent.length === 1 && userContent[0].type === "text"
+    const userMsg = attachments.length === 0
       ? { role: "user", content: text }
       : { role: "user", content: userContent };
 
@@ -505,11 +613,29 @@ export default function ClaudeChat() {
             <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
               {attachments.map((att, i) => (
                 <div key={i} style={{ position: "relative" }}>
-                  <img
-                    src={`data:${att.media_type};base64,${att.data}`}
-                    alt={att.name}
-                    style={{ height: 60, borderRadius: 6, border: `1px solid ${C.border}`, display: "block" }}
-                  />
+                  {att.kind === "image" ? (
+                    <img
+                      src={`data:${att.media_type};base64,${att.data}`}
+                      alt={att.name}
+                      style={{ height: 60, borderRadius: 6, border: `1px solid ${C.border}`, display: "block" }}
+                    />
+                  ) : (
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      background: C.surface, border: `1px solid ${C.border}`,
+                      borderRadius: 8, padding: "10px 14px", height: 60, boxSizing: "border-box",
+                    }}>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <span style={{ color: C.text, fontWeight: 600, fontSize: 12, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name}</span>
+                        <span style={{ color: C.textMuted, fontSize: 11 }}>{att.fileCount} files · {formatBytes(att.totalSize)}</span>
+                      </div>
+                    </div>
+                  )}
                   <button
                     onClick={() => removeAttachment(i)}
                     style={{
@@ -532,7 +658,7 @@ export default function ClaudeChat() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,.zip,application/zip"
               multiple
               onChange={handleFileSelect}
               style={{ display: "none" }}
@@ -540,7 +666,7 @@ export default function ClaudeChat() {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={streaming}
-              title="Attach image"
+              title="Attach image or zip"
               style={{
                 background: "transparent", border: "none", color: C.textMuted,
                 cursor: streaming ? "default" : "pointer",
