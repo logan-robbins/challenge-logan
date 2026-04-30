@@ -17,10 +17,14 @@ export async function POST(request: NextRequest) {
   }
 
   const stream = client.messages.stream({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 8096,
+    model: "claude-sonnet-4-6",
+    max_tokens: 16000,
     system: SYSTEM_PROMPT,
     messages,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    thinking: { type: "adaptive" } as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    output_config: { effort: "high" } as any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     betas: ["mcp-client-2025-04-04"] as any,
     mcp_servers: [
