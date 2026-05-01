@@ -9,7 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.78.0",
+    "@anthropic-ai/sdk": "^0.92.0",
     "firebase-admin": "^13.7.0",
     "highlight.js": "^11.11.1",
     "jszip": "^3.10.1",

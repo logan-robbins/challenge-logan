@@ -1,36 +1,80 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# challengelogan
 
-## Getting Started
+Next.js app deployed to Google Cloud Run. Live at **https://challengelogan.com**.
 
-First, run the development server:
+## Pages
+
+| Path | Description |
+|---|---|
+| `/` | Challenge listing |
+| `/help` | Claude Managed Agent chat interface |
+| `/admin` | Admin panel (GitHub login required) |
+| `/agent-governance` | Agent governance demo |
+| `/agent-workflows` | Agent workflow demo |
+
+## Local dev
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# → http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Requires `.env.local` — copy `.env.example` and fill in values.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deployment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+**Target:** Google Cloud Run — project `transformer-478002`, region `us-central1`, service `challengelogan`  
+**Custom domain:** https://challengelogan.com
 
-## Learn More
+Deploy (builds via Cloud Build, then updates the service):
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+# 1. Build and push the image
+gcloud builds submit \
+  --tag us-central1-docker.pkg.dev/transformer-478002/cloud-run-source-deploy/challengelogan:latest \
+  --region us-central1
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# 2. Deploy the new image
+gcloud run deploy challengelogan \
+  --image us-central1-docker.pkg.dev/transformer-478002/cloud-run-source-deploy/challengelogan:latest \
+  --region us-central1 \
+  --timeout 3600
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+To update environment variables:
 
-## Deploy on Vercel
+```bash
+gcloud run services update challengelogan \
+  --region us-central1 \
+  --update-env-vars KEY=VALUE
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Managed Agent setup (one-time)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The `/help` chat uses Anthropic Managed Agents. If `AGENT_ID` / `ENV_ID` are not set, run:
+
+```bash
+ANTHROPIC_API_KEY=... BRIGHTDATA_API_TOKEN=... npx tsx scripts/setup-managed-agent.ts
+```
+
+Then add the printed `AGENT_ID` and `ENV_ID` to `.env.local` and to Cloud Run:
+
+```bash
+gcloud run services update challengelogan \
+  --region us-central1 \
+  --update-env-vars AGENT_ID=...,ENV_ID=...
+```
+
+## Environment variables
+
+| Variable | Where | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | Cloud Run + `.env.local` | Key in `DO_NOT_DELETE.txt` |
+| `AGENT_ID` | Cloud Run + `.env.local` | From setup script |
+| `ENV_ID` | Cloud Run + `.env.local` | From setup script |
+| `CHAT_PASSWORD` | Cloud Run + `.env.local` | Password gates `/help` |
+| `BRIGHTDATA_API_TOKEN` | Cloud Run + `.env.local` | BrightData MCP token |
+| `AUTH_SECRET` | Cloud Run + `.env.local` | Auth.js secret |
+| `AUTH_GITHUB_ID/SECRET` | Cloud Run + `.env.local` | GitHub OAuth app |
+| `ADMIN_GITHUB_ID` | Cloud Run + `.env.local` | GitHub user ID for admin access |

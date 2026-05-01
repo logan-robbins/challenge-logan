@@ -11,7 +11,7 @@ function formatBytes(n) {
   return `${(n / 1024 / 1024).toFixed(2)} MB`;
 }
 
-async function uploadZip(file, password) {
+async function uploadFile(file, password) {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("password", password);
@@ -190,7 +190,7 @@ const markdownComponents = {
   },
 };
 
-function ZipChip({ header }) {
+function FileChip({ att }) {
   return (
     <div style={{
       display: "inline-flex", alignItems: "center", gap: 8,
@@ -203,7 +203,12 @@ function ZipChip({ header }) {
         <polyline points="7 10 12 15 17 10" />
         <line x1="12" y1="15" x2="12" y2="3" />
       </svg>
-      <span style={{ color: C.text, fontWeight: 600 }}>{header}</span>
+      <div>
+        <span style={{ color: C.text, fontWeight: 600 }}>{att.name}</span>
+        {att.sizeFormatted && (
+          <span style={{ marginLeft: 6 }}>{att.sizeFormatted} → {att.mountPath}</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -226,12 +231,8 @@ function MessageContent({ msg }) {
               />
             );
           }
-          if (p.type === "document") {
-            const meta = p._meta;
-            const header = meta
-              ? `${meta.name} — ${meta.fileCount} files, ${formatBytes(meta.totalSize)}`
-              : (p.title || "Document");
-            return <ZipChip key={i} header={header} />;
+          if (p.type === "file_resource") {
+            return <FileChip key={i} att={p} />;
           }
           return (
             <div key={i} style={{ whiteSpace: "pre-wrap", lineHeight: 1.6, color: C.text }}>
@@ -250,9 +251,56 @@ function MessageContent({ msg }) {
   );
 }
 
-function Message({ msg, streaming, status }) {
+function fmtBytes(n) {
+  if (!n) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function ArtifactCard({ artifact, password }) {
+  const url = `/api/download?file_id=${artifact.id}&name=${encodeURIComponent(artifact.filename)}&password=${encodeURIComponent(password)}`;
+  return (
+    <a
+      href={url}
+      download={artifact.filename}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 10,
+        background: C.surface, border: `1px solid ${C.accentBorder}`,
+        borderRadius: 10, padding: "10px 14px", marginTop: 8,
+        textDecoration: "none", color: C.text,
+        fontFamily: sans, fontSize: 13,
+        transition: "border-color 0.15s, background 0.15s",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = C.accentBg; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = C.surface; }}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+        <polyline points="7 10 12 15 17 10" />
+        <line x1="12" y1="15" x2="12" y2="3" />
+      </svg>
+      <div>
+        <div style={{ fontWeight: 600, color: C.text }}>{artifact.filename}</div>
+        {artifact.size > 0 && (
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>{fmtBytes(artifact.size)}</div>
+        )}
+      </div>
+      <span style={{ marginLeft: "auto", fontSize: 11, color: C.accent, fontWeight: 600 }}>Download</span>
+    </a>
+  );
+}
+
+function fmtElapsed(s) {
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+function Message({ msg, streaming, status, elapsed, password }) {
   const isUser = msg.role === "user";
   const empty = !msg.content || (typeof msg.content === "string" && !msg.content.trim());
+  const label = status || "Working…";
+  const showTimer = streaming && !isUser && elapsed > 0;
 
   return (
     <div style={{
@@ -269,36 +317,43 @@ function Message({ msg, streaming, status }) {
         fontFamily: sans, fontSize: 14, color: C.text,
       }}>
         <MessageContent msg={msg} />
-        {!isUser && streaming && status && (
+        {!isUser && msg.artifacts && msg.artifacts.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12 }}>
+            <div style={{ fontSize: 11, color: C.textDim, fontWeight: 600, letterSpacing: "0.08em" }}>
+              ARTIFACTS
+            </div>
+            {msg.artifacts.map((a) => (
+              <ArtifactCard key={a.id} artifact={a} password={password} />
+            ))}
+          </div>
+        )}
+        {!isUser && streaming && (empty || status) && (
           <div style={{
             display: "inline-flex", alignItems: "center", gap: 8,
             marginTop: empty ? 0 : 8,
             color: C.textMuted, fontSize: 12,
             background: C.elevated, border: `1px solid ${C.border}`,
             borderRadius: 999, padding: "5px 12px",
+            maxWidth: "100%",
           }}>
             <span style={{
+              flexShrink: 0,
               width: 6, height: 6, borderRadius: "50%", background: C.accent,
               animation: "pulse 1.2s ease-in-out infinite",
             }} />
-            {status}
-          </div>
-        )}
-        {!isUser && streaming && !status && empty && (
-          <div style={{
-            display: "inline-flex", alignItems: "center", gap: 8,
-            color: C.textMuted, fontSize: 12,
-            background: C.elevated, border: `1px solid ${C.border}`,
-            borderRadius: 999, padding: "5px 12px",
-          }}>
             <span style={{
-              width: 6, height: 6, borderRadius: "50%", background: C.accent,
-              animation: "pulse 1.2s ease-in-out infinite",
-            }} />
-            Working…
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              fontFamily: label.startsWith("$") || label.startsWith("search:") ? mono : sans,
+              fontSize: label.startsWith("$") || label.startsWith("search:") ? 11 : 12,
+            }}>{label}</span>
+            {showTimer && (
+              <span style={{ flexShrink: 0, color: C.textDim, fontFamily: mono, fontSize: 11 }}>
+                {fmtElapsed(elapsed)}
+              </span>
+            )}
           </div>
         )}
-        {!isUser && streaming && !empty && (
+        {!isUser && streaming && !empty && !status && (
           <span style={{
             display: "inline-block", width: 7, height: 14,
             background: C.text, marginLeft: 2, verticalAlign: "text-bottom",
@@ -333,9 +388,13 @@ export default function ClaudeChat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState([]);
+  const [pendingFileResources, setPendingFileResources] = useState([]);
+  const [sessionId, setSessionId] = useState(null);
   const [streaming, setStreaming] = useState(false);
-  const [uploadingZip, setUploadingZip] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState("");
+  const [elapsed, setElapsed] = useState(0);
+  const streamStartRef = useRef(null);
   const [gateError, setGateError] = useState(false);
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
@@ -344,6 +403,19 @@ export default function ClaudeChat() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (!streaming) {
+      setElapsed(0);
+      streamStartRef.current = null;
+      return;
+    }
+    streamStartRef.current = Date.now();
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - streamStartRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [streaming]);
 
   function handleAuth(pw) {
     sessionStorage.setItem("help_chat_password", pw);
@@ -355,8 +427,11 @@ export default function ClaudeChat() {
     setMessages([]);
     setInput("");
     setAttachments([]);
+    setPendingFileResources([]);
+    setSessionId(null);
     setStreaming(false);
     setStatus("");
+    setElapsed(0);
     textareaRef.current?.focus();
   }
 
@@ -364,8 +439,9 @@ export default function ClaudeChat() {
     const files = Array.from(e.target.files || []);
     e.target.value = "";
     const newAtts = [];
+    const newFileResources = [];
+
     for (const file of files) {
-      const ext = file.name.split(".").pop().toLowerCase();
       if (file.type.startsWith("image/")) {
         if (file.size > 5 * 1024 * 1024) continue;
         const base64 = await fileToBase64(file);
@@ -375,30 +451,38 @@ export default function ClaudeChat() {
           media_type: file.type,
           data: base64,
         });
-      } else if (ext === "zip" || file.type === "application/zip" || file.type === "application/x-zip-compressed") {
-        setUploadingZip(true);
+      } else {
+        setUploading(true);
         try {
-          const data = await uploadZip(file, password);
+          const data = await uploadFile(file, password);
           newAtts.push({
-            kind: "zip",
+            kind: "file_resource",
             name: data.name,
-            file_id: data.file_id,
-            fileCount: data.fileCount,
-            totalSize: data.totalSize,
+            sizeFormatted: data.sizeFormatted,
+            mountPath: data.mountPath,
           });
+          newFileResources.push({ file_id: data.file_id, mount_path: data.mountPath });
         } catch (err) {
-          console.error("zip upload failed", err);
-          alert(`Zip upload failed: ${err.message}`);
+          console.error("file upload failed", err);
+          alert(`Upload failed: ${err.message}`);
         } finally {
-          setUploadingZip(false);
+          setUploading(false);
         }
       }
     }
+
     setAttachments((prev) => [...prev, ...newAtts]);
+    setPendingFileResources((prev) => [...prev, ...newFileResources]);
   }
 
   function removeAttachment(i) {
+    const att = attachments[i];
     setAttachments((prev) => prev.filter((_, idx) => idx !== i));
+    if (att.kind === "file_resource") {
+      setPendingFileResources((prev) =>
+        prev.filter((f) => f.mount_path !== att.mountPath)
+      );
+    }
   }
 
   const sendMessage = useCallback(async () => {
@@ -412,18 +496,18 @@ export default function ClaudeChat() {
           type: "image",
           source: { type: "base64", media_type: att.media_type, data: att.data },
         });
-      } else if (att.kind === "zip") {
+      } else if (att.kind === "file_resource") {
         userContent.push({
-          type: "document",
-          source: { type: "file", file_id: att.file_id },
-          title: att.name,
-          _meta: { kind: "zip", name: att.name, fileCount: att.fileCount, totalSize: att.totalSize },
+          type: "file_resource",
+          name: att.name,
+          sizeFormatted: att.sizeFormatted,
+          mountPath: att.mountPath,
         });
       }
     }
     if (text) userContent.push({ type: "text", text });
 
-    const userMsg = attachments.length === 0
+    const userMsg = userContent.length === 1 && userContent[0].type === "text"
       ? { role: "user", content: text }
       : { role: "user", content: userContent };
 
@@ -431,6 +515,8 @@ export default function ClaudeChat() {
     setMessages([...newMessages, { role: "assistant", content: "" }]);
     setInput("");
     setAttachments([]);
+    const outgoingFileResources = [...pendingFileResources];
+    setPendingFileResources([]);
     setStreaming(true);
     setStatus("");
 
@@ -438,11 +524,9 @@ export default function ClaudeChat() {
 
     const apiMessages = newMessages.map((m) => {
       if (typeof m.content === "string") return m;
-      const cleaned = m.content.map((c) => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
-        const { _meta, ...rest } = c;
-        return rest;
-      });
+      const cleaned = m.content
+        .filter((c) => c.type !== "file_resource")
+        .map(({ _meta, ...rest }) => rest);
       return { ...m, content: cleaned };
     });
 
@@ -450,7 +534,12 @@ export default function ClaudeChat() {
       const resp = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMessages, password }),
+        body: JSON.stringify({
+          messages: apiMessages,
+          password,
+          sessionId,
+          pendingFileResources: outgoingFileResources,
+        }),
       });
 
       if (resp.status === 401) {
@@ -483,7 +572,9 @@ export default function ClaudeChat() {
           if (!line.trim()) continue;
           try {
             const evt = JSON.parse(line);
-            if (evt.t === "status") {
+            if (evt.t === "session") {
+              setSessionId(evt.v);
+            } else if (evt.t === "status") {
               setStatus(evt.v);
             } else if (evt.t === "text") {
               receivedText = true;
@@ -492,8 +583,19 @@ export default function ClaudeChat() {
                 const last = prev[prev.length - 1];
                 return [...prev.slice(0, -1), { ...last, content: last.content + evt.v }];
               });
+            } else if (evt.t === "artifacts") {
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                return [...prev.slice(0, -1), { ...last, artifacts: evt.v }];
+              });
             } else if (evt.t === "done") {
               setStatus("");
+              break;
+            } else if (evt.t === "error") {
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                return [...prev.slice(0, -1), { ...last, content: `Error: ${evt.v}` }];
+              });
             }
           } catch {}
         }
@@ -504,7 +606,7 @@ export default function ClaudeChat() {
           const last = prev[prev.length - 1];
           return [...prev.slice(0, -1), {
             ...last,
-            content: "_No response text was returned. The model may have hit the token budget during thinking/tool use. Try a more specific prompt._",
+            content: "_No response text was returned. The agent may still be working — try asking for an update._",
           }];
         });
       }
@@ -517,7 +619,7 @@ export default function ClaudeChat() {
 
     setStreaming(false);
     setStatus("");
-  }, [input, attachments, streaming, messages, password]);
+  }, [input, attachments, pendingFileResources, streaming, messages, password, sessionId]);
 
   function handleKeyDown(e) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -529,6 +631,8 @@ export default function ClaudeChat() {
   if (!password) {
     return <PasswordGate onAuth={handleAuth} gateError={gateError} />;
   }
+
+  const busy = streaming || uploading;
 
   return (
     <>
@@ -552,8 +656,15 @@ export default function ClaudeChat() {
           padding: "12px 20px", borderBottom: `1px solid ${C.border}`,
           position: "sticky", top: 0, background: C.bg, zIndex: 10,
         }}>
-          <div style={{ color: C.accent, fontSize: 13, fontWeight: 700, letterSpacing: "0.06em" }}>
-            HELP
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ color: C.accent, fontSize: 13, fontWeight: 700, letterSpacing: "0.06em" }}>
+              HELP
+            </div>
+            {sessionId && (
+              <div style={{ color: C.textDim, fontSize: 11, fontFamily: mono }}>
+                {sessionId.slice(0, 16)}…
+              </div>
+            )}
           </div>
           <button
             onClick={handleNewChat}
@@ -577,17 +688,22 @@ export default function ClaudeChat() {
               <div style={{ color: C.text, fontSize: 24, fontWeight: 700, marginBottom: 12, letterSpacing: "-0.01em" }}>
                 Ask anything
               </div>
-              <div>Live web search via BrightData · Microsoft &amp; Azure docs · drop in images.</div>
+              <div>Managed agent with bash, file ops, web search · Microsoft docs · upload files.</div>
             </div>
           )}
-          {messages.map((msg, i) => (
-            <Message
-              key={i}
-              msg={msg}
-              streaming={streaming && i === messages.length - 1 && msg.role === "assistant"}
-              status={streaming && i === messages.length - 1 && msg.role === "assistant" ? status : ""}
-            />
-          ))}
+          {messages.map((msg, i) => {
+            const isActiveAssistant = streaming && i === messages.length - 1 && msg.role === "assistant";
+            return (
+              <Message
+                key={i}
+                msg={msg}
+                streaming={isActiveAssistant}
+                status={isActiveAssistant ? status : ""}
+                elapsed={isActiveAssistant ? elapsed : 0}
+                password={password}
+              />
+            );
+          })}
           <div ref={bottomRef} />
         </div>
 
@@ -619,7 +735,7 @@ export default function ClaudeChat() {
                       </svg>
                       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                         <span style={{ color: C.text, fontWeight: 600, fontSize: 12, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.name}</span>
-                        <span style={{ color: C.textMuted, fontSize: 11 }}>{att.fileCount} files · {formatBytes(att.totalSize)}</span>
+                        <span style={{ color: C.textMuted, fontSize: 11 }}>{att.sizeFormatted} → {att.mountPath}</span>
                       </div>
                     </div>
                   )}
@@ -645,18 +761,18 @@ export default function ClaudeChat() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*,.zip,application/zip"
+              accept="image/*,.zip,.csv,.json,.txt,.md,.py,.ts,.js,.tsx,.jsx,.pdf,.docx,.xlsx"
               multiple
               onChange={handleFileSelect}
               style={{ display: "none" }}
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={streaming || uploadingZip}
-              title={uploadingZip ? "Uploading…" : "Attach image or zip"}
+              disabled={busy}
+              title={uploading ? "Uploading…" : "Attach file"}
               style={{
-                background: "transparent", border: "none", color: uploadingZip ? C.accent : C.textMuted,
-                cursor: streaming || uploadingZip ? "default" : "pointer",
+                background: "transparent", border: "none", color: uploading ? C.accent : C.textMuted,
+                cursor: busy ? "default" : "pointer",
                 padding: 4, display: "flex", alignItems: "center",
                 opacity: streaming ? 0.4 : 1,
               }}
@@ -686,23 +802,23 @@ export default function ClaudeChat() {
             />
             <button
               onClick={sendMessage}
-              disabled={streaming || uploadingZip || (!input.trim() && attachments.length === 0)}
+              disabled={busy || (!input.trim() && attachments.length === 0)}
               style={{
-                background: streaming || uploadingZip || (!input.trim() && attachments.length === 0) ? C.border : C.accent,
+                background: busy || (!input.trim() && attachments.length === 0) ? C.border : C.accent,
                 border: "none", borderRadius: 8,
-                color: streaming || uploadingZip || (!input.trim() && attachments.length === 0) ? C.textDim : "#0a0a0f",
+                color: busy || (!input.trim() && attachments.length === 0) ? C.textDim : "#0a0a0f",
                 fontFamily: sans, fontSize: 13, fontWeight: 700,
                 padding: "7px 14px",
-                cursor: streaming || uploadingZip || (!input.trim() && attachments.length === 0) ? "default" : "pointer",
+                cursor: busy || (!input.trim() && attachments.length === 0) ? "default" : "pointer",
                 whiteSpace: "nowrap", alignSelf: "flex-end",
                 transition: "background 0.15s",
               }}
             >
-              {streaming ? "…" : uploadingZip ? "Uploading" : "Send"}
+              {streaming ? "…" : uploading ? "Uploading" : "Send"}
             </button>
           </div>
           <div style={{ color: C.textDim, fontSize: 11, marginTop: 8, textAlign: "center" }}>
-            Enter ↵ to send · Shift+Enter for newline · Drag to resize
+            Enter ↵ to send · Shift+Enter for newline · Attach images, zips, docs, code
           </div>
         </div>
       </div>
