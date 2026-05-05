@@ -192,11 +192,11 @@ export async function POST(request: NextRequest) {
             }
 
             case "session.error": {
+              // session.error is non-fatal per docs — only session.status_terminated is.
+              // Surface as a status note and keep listening; the lifecycle events will close us.
               const errMsg = extractErrorMessage((e as Record<string, unknown>).error);
-              send({ t: "error", v: errMsg });
-              send({ t: "done" });
-              controller.close();
-              return;
+              send({ t: "status", v: `warning: ${errMsg}` });
+              break;
             }
           }
         }

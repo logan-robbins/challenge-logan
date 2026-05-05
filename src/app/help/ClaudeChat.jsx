@@ -592,6 +592,7 @@ export default function ClaudeChat() {
               setStatus("");
               break;
             } else if (evt.t === "error") {
+              receivedText = true;
               setMessages((prev) => {
                 const last = prev[prev.length - 1];
                 return [...prev.slice(0, -1), { ...last, content: `Error: ${evt.v}` }];
