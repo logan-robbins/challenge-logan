@@ -94,39 +94,67 @@ export async function POST(request: NextRequest) {
       const send = (obj: Record<string, unknown>) =>
         controller.enqueue(enc.encode(JSON.stringify(obj) + "\n"));
 
+      const isStaleSessionError = (err: unknown): boolean => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const e = err as any;
+        const errType = e?.error?.error?.type ?? e?.error?.type;
+        const msg = String(e?.message ?? "");
+        return e?.status === 400 && (errType === "invalid_request_error" || /session/i.test(msg));
+      };
+
+      const createFreshSession = async (): Promise<string> => {
+        const sessionResources = (pendingFileResources ?? []).map((f) => ({
+          type: "file" as const,
+          file_id: f.file_id,
+          mount_path: f.mount_path,
+        }));
+        const session = await client.beta.sessions.create({
+          agent: agentId,
+          environment_id: envId,
+          title: "Help Chat",
+          ...(sessionResources.length > 0 ? { resources: sessionResources } : {}),
+        });
+        return session.id;
+      };
+
       try {
         let sessionId = incomingSessionId ?? null;
 
         if (!sessionId) {
-          const sessionResources = (pendingFileResources ?? []).map((f) => ({
-            type: "file" as const,
-            file_id: f.file_id,
-            mount_path: f.mount_path,
-          }));
-          const session = await client.beta.sessions.create({
-            agent: agentId,
-            environment_id: envId,
-            title: "Help Chat",
-            ...(sessionResources.length > 0 ? { resources: sessionResources } : {}),
-          });
-          sessionId = session.id;
+          sessionId = await createFreshSession();
         } else if (pendingFileResources && pendingFileResources.length > 0) {
-          for (const f of pendingFileResources) {
-            await client.beta.sessions.resources.add(sessionId, {
-              type: "file",
-              file_id: f.file_id,
-              mount_path: f.mount_path,
-            });
+          try {
+            for (const f of pendingFileResources) {
+              await client.beta.sessions.resources.add(sessionId, {
+                type: "file",
+                file_id: f.file_id,
+                mount_path: f.mount_path,
+              });
+            }
+          } catch (err) {
+            if (!isStaleSessionError(err)) throw err;
+            sessionId = await createFreshSession();
           }
         }
 
         send({ t: "session", v: sessionId });
 
-        const stream = await client.beta.sessions.events.stream(sessionId);
-
-        await client.beta.sessions.events.send(sessionId, {
-          events: [{ type: "user.message", content: messageContent }],
-        });
+        // Open the event stream + send the user message. Retry once on stale session.
+        let stream: AsyncIterable<BetaManagedAgentsStreamSessionEvents>;
+        try {
+          stream = await client.beta.sessions.events.stream(sessionId);
+          await client.beta.sessions.events.send(sessionId, {
+            events: [{ type: "user.message", content: messageContent }],
+          });
+        } catch (err) {
+          if (!isStaleSessionError(err)) throw err;
+          sessionId = await createFreshSession();
+          send({ t: "session", v: sessionId });
+          stream = await client.beta.sessions.events.stream(sessionId);
+          await client.beta.sessions.events.send(sessionId, {
+            events: [{ type: "user.message", content: messageContent }],
+          });
+        }
 
         const finalize = async (sid: string) => {
           const artifacts = await listOutputFiles(sid);
