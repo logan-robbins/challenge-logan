@@ -7,7 +7,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 
-const NEW_MODEL: "claude-sonnet-4-6" = "claude-sonnet-4-6";
+const NEW_MODEL: "claude-opus-4-7" = "claude-opus-4-7";
 
 if (!process.env.ANTHROPIC_API_KEY) {
   console.error("Error: ANTHROPIC_API_KEY is not set");

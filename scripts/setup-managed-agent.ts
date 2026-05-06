@@ -53,7 +53,7 @@ async function setup() {
   console.log("Creating agent...");
   const agent = await client.beta.agents.create({
     name: "help-chat-agent",
-    model: "claude-sonnet-4-6",
+    model: "claude-opus-4-7",
     system: SYSTEM_PROMPT,
     tools: [
       { type: "agent_toolset_20260401" },
