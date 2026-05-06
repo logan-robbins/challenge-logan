@@ -2,7 +2,14 @@ import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import type { BetaManagedAgentsStreamSessionEvents } from "@anthropic-ai/sdk/resources/beta/sessions/events";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// Long-running managed-agent sessions can stream for up to Cloud Run's 3600s
+// request timeout. Override the SDK's 10-minute default and disable retries —
+// retries on a streaming connection re-bill the same conversation.
+const client = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  timeout: 3600 * 1000,
+  maxRetries: 0,
+});
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -95,11 +102,18 @@ export async function POST(request: NextRequest) {
         controller.enqueue(enc.encode(JSON.stringify(obj) + "\n"));
 
       const isStaleSessionError = (err: unknown): boolean => {
+        // Only fire on Anthropic explicitly returning "Invalid session ID".
+        // A broader match would silently nuke a long-running session on any
+        // transient 400 — and lose hours of context.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const e = err as any;
         const errType = e?.error?.error?.type ?? e?.error?.type;
-        const msg = String(e?.message ?? "");
-        return e?.status === 400 && (errType === "invalid_request_error" || /session/i.test(msg));
+        const msg = String(e?.error?.error?.message ?? e?.error?.message ?? e?.message ?? "");
+        return (
+          e?.status === 400 &&
+          errType === "invalid_request_error" &&
+          /Invalid session ID/i.test(msg)
+        );
       };
 
       const createFreshSession = async (): Promise<string> => {

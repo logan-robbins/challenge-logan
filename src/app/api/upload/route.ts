@@ -1,7 +1,11 @@
 import { NextRequest } from "next/server";
 import Anthropic, { toFile } from "@anthropic-ai/sdk";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const client = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  timeout: 3600 * 1000,
+  maxRetries: 0,
+});
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "heic", "avif"]);
 
